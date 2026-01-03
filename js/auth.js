@@ -1,5 +1,5 @@
 // This URL must match your Node.js server port
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://sovereign-backend-6pcz.onrender.com/';
 
 /* =======================
     USER SIGNUP
@@ -88,4 +88,5 @@ async function loginUser() {
     } catch (err) {
         alert("Login failed.");
     }
+
 }
