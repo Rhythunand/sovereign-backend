@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1767290249156,
+    "name": "rhyt",
+    "email": "rhythunandbiju@gmail.com",
+    "passwordHash": "$2b$10$0pSdT4jYfAVKmlGKTC1uUuI5d4.ZwhQBv3RR0b27hnqWxHzXxntW.",
+    "verified": true
+  },
+  {
+    "id": 1767297112707,
+    "name": "Rhy",
+    "email": "vidhya.kuthuparamba@gmail.com",
+    "passwordHash": "$2b$10$lsJZFY5wHed27eOXyZq8EOpLfIMW.TXxP3U7UvvB4OaoktCUAXk9i",
+    "verified": true
+  }
+]

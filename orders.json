@@ -1,0 +1,10 @@
+[
+  {
+    "orderId": "ORD-12345",
+    "userId": 123456789,
+    "total": 250.00,
+    "items": [{"name": "Antique Clock", "price": 250}],
+    "status": "Paid",
+    "createdAt": "2026-01-01T10:00:00Z"
+  }
+]
