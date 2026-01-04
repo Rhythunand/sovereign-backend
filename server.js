@@ -67,12 +67,16 @@ const Admin = mongoose.model("Admin", AdminSchema);
 /* ==========================
    INIT ADMIN
 ========================== */
+const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD;
+
 (async () => {
+  if (!ADMIN_SEED_PASSWORD) return;
+
   const exists = await Admin.findOne();
   if (!exists) {
-    const hash = await bcrypt.hash("admin123", 10);
+    const hash = await bcrypt.hash(ADMIN_SEED_PASSWORD, 10);
     await Admin.create({ passwordHash: hash });
-    console.log("✅ Admin initialized (password: admin123)");
+    console.log("✅ Admin initialized from ENV");
   }
 })();
 
@@ -226,3 +230,4 @@ app.get("/api/admin/stats", requireAdmin, async (req, res) => {
 app.listen(PORT, () =>
   console.log(`🚀 Sovereign backend running on port ${PORT}`)
 );
+
