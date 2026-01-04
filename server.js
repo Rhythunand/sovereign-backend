@@ -8,16 +8,8 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import cors from "cors";
-import fs from "fs";
-import path from "path";
 import nodemailer from "nodemailer";
-import { fileURLToPath } from "url";
-
-/* ==========================
-   __DIRNAME FIX (ESM)
-========================== */
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import mongoose from "mongoose";
 
 /* ==========================
    APP INIT
@@ -26,50 +18,63 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-/* ==========================
-   PATHS
-========================== */
-const USERS_PATH = path.join(__dirname, "users.json");
-const OTPS_PATH = path.join(__dirname, "otps.json");
-const ADMIN_PATH = path.join(__dirname, "admin-config.json");
-const CART_PATH = path.join(__dirname, "cart.json");
-const ORDERS_PATH = path.join(__dirname, "orders.json");
-const INVOICES_PATH = path.join(__dirname, "invoices.json");
-
-/* ==========================
-   INIT FILES
-========================== */
-if (!fs.existsSync(USERS_PATH)) fs.writeFileSync(USERS_PATH, "[]");
-if (!fs.existsSync(OTPS_PATH)) fs.writeFileSync(OTPS_PATH, "[]");
-if (!fs.existsSync(CART_PATH)) fs.writeFileSync(CART_PATH, "[]");
-if (!fs.existsSync(ORDERS_PATH)) fs.writeFileSync(ORDERS_PATH, "[]");
-if (!fs.existsSync(INVOICES_PATH)) fs.writeFileSync(INVOICES_PATH, "[]");
-
-/* ==========================
-   INIT ADMIN (PASSWORD ONLY)
-========================== */
-if (!fs.existsSync(ADMIN_PATH)) {
-  const hash = bcrypt.hashSync("admin123", 10);
-  fs.writeFileSync(
-    ADMIN_PATH,
-    JSON.stringify({ passwordHash: hash }, null, 2)
-  );
-  console.log("✅ Admin initialized: password = admin123");
-}
-
-/* ==========================
-   HELPERS
-========================== */
-const read = (filePath) => {
-  if (!fs.existsSync(filePath)) return [];
-  return JSON.parse(fs.readFileSync(filePath, "utf8") || "[]");
-};
-
-const write = (filePath, data) => {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-};
-
+const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret";
+
+/* ==========================
+   MONGODB CONNECT
+========================== */
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch(err => console.error("❌ MongoDB error:", err));
+
+/* ==========================
+   SCHEMAS
+========================== */
+const UserSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  passwordHash: String,
+  verified: Boolean
+});
+
+const OtpSchema = new mongoose.Schema({
+  email: String,
+  code: String,
+  expires: Number
+});
+
+const OrderSchema = new mongoose.Schema({
+  userId: String,
+  items: Array,
+  total: Number,
+  createdAt: { type: Date, default: Date.now }
+});
+
+const AdminSchema = new mongoose.Schema({
+  passwordHash: String
+});
+
+/* ==========================
+   MODELS
+========================== */
+const User = mongoose.model("User", UserSchema);
+const OTP = mongoose.model("OTP", OtpSchema);
+const Order = mongoose.model("Order", OrderSchema);
+const Admin = mongoose.model("Admin", AdminSchema);
+
+/* ==========================
+   INIT ADMIN
+========================== */
+(async () => {
+  const exists = await Admin.findOne();
+  if (!exists) {
+    const hash = await bcrypt.hash("admin123", 10);
+    await Admin.create({ passwordHash: hash });
+    console.log("✅ Admin initialized (password: admin123)");
+  }
+})();
 
 /* ==========================
    MAILER
@@ -78,8 +83,8 @@ const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
+    pass: process.env.EMAIL_PASS
+  }
 });
 
 /* ==========================
@@ -88,7 +93,6 @@ const transporter = nodemailer.createTransport({
 const requireAdmin = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
-    if (!token) throw new Error();
     const decoded = jwt.verify(token, JWT_SECRET);
     if (decoded.role !== "admin") throw new Error();
     req.admin = decoded;
@@ -101,9 +105,7 @@ const requireAdmin = (req, res, next) => {
 const authenticate = (req, res, next) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
-    if (!token) throw new Error();
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
     res.status(401).json({ message: "Unauthorized" });
@@ -120,49 +122,31 @@ app.get("/ping", (req, res) =>
 /* ---------- ADMIN LOGIN ---------- */
 app.post("/api/admin/login", async (req, res) => {
   const { password } = req.body;
-  const admin = JSON.parse(fs.readFileSync(ADMIN_PATH, "utf8"));
-
-  const match = await bcrypt.compare(password, admin.passwordHash);
-  if (!match) {
-    return res.status(401).json({ message: "Invalid credentials" });
-  }
+  const admin = await Admin.findOne();
+  const ok = await bcrypt.compare(password, admin.passwordHash);
+  if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
   const token = jwt.sign({ role: "admin" }, JWT_SECRET, { expiresIn: "2h" });
   res.json({ token });
 });
 
-/* ---------- CHANGE ADMIN PASSWORD ---------- */
-app.post("/api/admin/change-password", requireAdmin, async (req, res) => {
-  const { currentPassword, newPassword, confirmNewPassword } = req.body;
-  if (newPassword !== confirmNewPassword) {
-    return res.status(400).json({ message: "Passwords do not match" });
-  }
-
-  const admin = JSON.parse(fs.readFileSync(ADMIN_PATH, "utf8"));
-  const ok = await bcrypt.compare(currentPassword, admin.passwordHash);
-  if (!ok) return res.status(401).json({ message: "Wrong password" });
-
-  admin.passwordHash = await bcrypt.hash(newPassword, 10);
-  fs.writeFileSync(ADMIN_PATH, JSON.stringify(admin, null, 2));
-  res.json({ message: "Password updated" });
-});
-
 /* ---------- USER SIGNUP ---------- */
 app.post("/api/signup", async (req, res) => {
   const { name, email, password } = req.body;
-  const users = read(USERS_PATH);
-  if (users.find(u => u.email === email)) {
+
+  if (await User.findOne({ email })) {
     return res.status(409).json({ message: "User exists" });
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  users.push({ id: Date.now(), name, email, passwordHash, verified: false });
-  write(USERS_PATH, users);
+  await User.create({ name, email, passwordHash, verified: false });
 
   const code = Math.floor(100000 + Math.random() * 900000).toString();
-  write(OTPS_PATH, [...read(OTPS_PATH), {
-    email, code, expires: Date.now() + 600000
-  }]);
+  await OTP.create({
+    email,
+    code,
+    expires: Date.now() + 600000
+  });
 
   await transporter.sendMail({
     to: email,
@@ -174,23 +158,21 @@ app.post("/api/signup", async (req, res) => {
 });
 
 /* ---------- VERIFY OTP ---------- */
-app.post("/api/verify-otp", (req, res) => {
+app.post("/api/verify-otp", async (req, res) => {
   const { email, code } = req.body;
-  const otps = read(OTPS_PATH);
-  const entry = otps.find(o => o.email === email && o.code === code);
+  const entry = await OTP.findOne({ email, code });
 
   if (!entry || entry.expires < Date.now()) {
     return res.status(400).json({ message: "Invalid OTP" });
   }
 
-  const users = read(USERS_PATH);
-  const user = users.find(u => u.email === email);
+  const user = await User.findOne({ email });
   user.verified = true;
-  write(USERS_PATH, users);
-  write(OTPS_PATH, otps.filter(o => o.email !== email));
+  await user.save();
+  await OTP.deleteMany({ email });
 
   const token = jwt.sign(
-    { id: user.id, email, role: "user" },
+    { id: user._id, email, role: "user" },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
@@ -201,7 +183,8 @@ app.post("/api/verify-otp", (req, res) => {
 /* ---------- LOGIN USER ---------- */
 app.post("/api/login-user", async (req, res) => {
   const { email, password } = req.body;
-  const user = read(USERS_PATH).find(u => u.email === email);
+  const user = await User.findOne({ email });
+
   if (!user || !user.verified) {
     return res.status(401).json({ message: "Invalid login" });
   }
@@ -210,7 +193,7 @@ app.post("/api/login-user", async (req, res) => {
   if (!ok) return res.status(401).json({ message: "Invalid login" });
 
   const token = jwt.sign(
-    { id: user.id, email, role: "user" },
+    { id: user._id, email, role: "user" },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
@@ -219,9 +202,9 @@ app.post("/api/login-user", async (req, res) => {
 });
 
 /* ---------- ADMIN STATS ---------- */
-app.get("/api/admin/stats", requireAdmin, (req, res) => {
-  const orders = read(ORDERS_PATH);
-  const users = read(USERS_PATH);
+app.get("/api/admin/stats", requireAdmin, async (req, res) => {
+  const orders = await Order.find();
+  const users = await User.find();
 
   const revenue = orders.reduce((s, o) => s + Number(o.total || 0), 0);
   const itemsSold = orders.reduce((s, o) => s + (o.items?.length || 0), 0);
@@ -240,7 +223,6 @@ app.get("/api/admin/stats", requireAdmin, (req, res) => {
 /* ==========================
    START SERVER
 ========================== */
-const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
   console.log(`🚀 Sovereign backend running on port ${PORT}`)
 );
