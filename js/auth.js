@@ -1,5 +1,5 @@
 // This URL must match your Node.js server port
-const API_URL = 'https://sovereign-backend-6pcz.onrender.com';
+const API_URL = 'https://sovereign-backend-gj6y.onrender.com';
 
 /* =======================
     USER SIGNUP
@@ -90,4 +90,5 @@ async function loginUser() {
     }
 
 }
+
 
